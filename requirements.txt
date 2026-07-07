@@ -1,0 +1,4 @@
+watchdog
+pypdf
+python-docx
+google-genai
