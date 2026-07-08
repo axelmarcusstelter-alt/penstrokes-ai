@@ -322,34 +322,64 @@ async def download_pdf(session: str = Query(..., alias="session")):
 
     report_text: str = sess["report_text"]
 
-    pdf = FPDF()
+    pdf = FPDF(format="letter")
+    pdf.set_margins(25, 20, 25)
     pdf.add_page()
-    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.set_auto_page_break(auto=True, margin=20)
 
-    # Calculate effective width
     effective_width = pdf.w - pdf.l_margin - pdf.r_margin
 
-    for line in report_text.split("\n"):
-        # Encode safely — replace chars not in latin-1
-        safe_line = line.encode("latin-1", errors="replace").decode("latin-1")
+    lines = report_text.split("\n")
+    prev_blank = False  # track consecutive blanks
 
-        # Detect headings (ALL CAPS lines or lines ending with colon)
+    for line in lines:
+        # Encode safely for latin-1
+        safe_line = line.encode("latin-1", errors="replace").decode("latin-1")
         stripped = safe_line.strip()
-        is_heading = (
-            stripped
-            and (stripped.isupper() or stripped.endswith(":"))
-            and len(stripped) < 80
+
+        # --- Blank line handling: collapse consecutive blanks ---
+        if not stripped:
+            if not prev_blank:
+                pdf.ln(3)
+            prev_blank = True
+            continue
+        prev_blank = False
+
+        # --- Heading detection ---
+        # A "section heading" is: ALL CAPS (at least 4 chars, no lowercase),
+        # or a short line that is all caps with maybe a dash/colon.
+        # Field labels like "Name: John" are NOT headings.
+        words = stripped.split()
+        is_all_caps = (
+            len(stripped) >= 4
+            and stripped.upper() == stripped
+            and any(c.isalpha() for c in stripped)
+            and len(stripped) < 100
+        )
+        # Section header ending with colon: must be short and have no value after it
+        # e.g. "Methods Used:" is a heading, but "Name: John Doe" is NOT
+        is_section_colon = (
+            stripped.endswith(":")
+            and len(stripped) < 60
+            and ":" not in stripped[:-1]  # only one colon, at the end
         )
 
-        if not stripped:
+        if is_all_caps:
+            # Major heading (e.g. "CONFIDENTIAL INFORMATION", "NEUROPSYCHOLOGICAL ASSESSMENT")
             pdf.ln(4)
-        elif is_heading:
             pdf.set_font("Helvetica", "B", 12)
-            pdf.multi_cell(effective_width, 7, stripped)
+            pdf.multi_cell(effective_width, 6, stripped)
+            pdf.ln(2)
+        elif is_section_colon:
+            # Section subheading (e.g. "Methods Used:", "Background:")
+            pdf.ln(2)
+            pdf.set_font("Helvetica", "B", 11)
+            pdf.multi_cell(effective_width, 5.5, stripped)
             pdf.ln(1)
         else:
-            pdf.set_font("Helvetica", "", 11)
-            pdf.multi_cell(effective_width, 6, safe_line)
+            # Normal body text
+            pdf.set_font("Helvetica", "", 10.5)
+            pdf.multi_cell(effective_width, 5, safe_line)
 
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
     pdf.output(tmp.name)
