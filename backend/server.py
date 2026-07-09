@@ -217,18 +217,27 @@ async def refine(
         raise HTTPException(status_code=400, detail="No report generated yet. Generate a report first.")
 
     system_prompt = (
-        "You are a psychological report editor. You have a report that was previously generated. "
-        "The clinician wants modifications. Apply their instructions precisely while maintaining "
-        "the professional tone and clinical accuracy of the report. "
+        "You are a report editor. The clinician wants to modify an existing report. "
+        "Apply their instructions precisely. "
+        "CRITICAL: Do NOT add any new facts, data, observations, or clinical information "
+        "that are not already in the report or in the original intake data provided. "
+        "If the clinician asks to add detail on something not in the source data, write [BLANK]. "
+        "Do NOT hallucinate or fabricate any content. "
         "Return ONLY the complete modified report, not explanations."
     )
 
+    # Include intake data as reference to keep refinements grounded
+    intake_text = session.get("intake_text", "")
+
     user_message = (
+        "=== ORIGINAL INTAKE DATA (source of truth) ===\n\n"
+        f"{intake_text}\n\n"
         "=== CURRENT REPORT ===\n\n"
         f"{report_text}\n\n"
         "=== CLINICIAN INSTRUCTIONS ===\n\n"
         f"{body.instructions}\n\n"
-        "Apply the instructions and return the complete modified report."
+        "Apply the instructions. Use ONLY information from the intake data and current report. "
+        "Do NOT invent or add any new information. Return the complete modified report."
     )
 
     client = genai.Client(api_key=os.getenv("GEMINI_API_KEY", ""))
@@ -243,7 +252,7 @@ async def refine(
                 contents=[user_message],
                 config=genai.types.GenerateContentConfig(
                     system_instruction=system_prompt,
-                    temperature=0.1,
+                    temperature=0.0,
                 ),
             )
             refined_text = response.text

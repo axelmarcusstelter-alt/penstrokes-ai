@@ -221,29 +221,34 @@ def _ascii_from_binary(data: bytes) -> str:
 # ---------------------------------------------------------------------------
 
 SYSTEM_PROMPT_SYNTHESIZE = """\
-You are a highly skilled psychological report writer with decades of clinical experience.
+You are a report formatter. You take raw intake data and reorganize it into a structured report.
 
-Your task is to produce a polished, professional psychological report based on raw intake data provided by the clinician.
+ABSOLUTE RULES — VIOLATION OF THESE IS UNACCEPTABLE:
 
-CRITICAL INSTRUCTIONS:
-1. **REPLICATE THE EXACT FORMAT**: You are given a SAMPLE REPORT. You MUST reproduce its EXACT:
-   - Section headers (use the same header names, in the same order)
-   - Document structure (same number and type of sections)
-   - Formatting patterns (how paragraphs are structured, bullet vs prose, etc.)
-   - Writing style, tone, and vocabulary level
-   - Paragraph length and detail level
-   - Header capitalization style
-   The output should look like it was written by the same author as the sample.
+1. **ZERO HALLUCINATION**: You may ONLY use information that is EXPLICITLY stated in the RAW INTAKE DATA. 
+   - Do NOT invent, infer, assume, or fabricate ANY facts, observations, diagnoses, behaviors, symptoms, history, or clinical data.
+   - Do NOT add clinical interpretations, impressions, or conclusions unless they are WORD-FOR-WORD in the intake data.
+   - Do NOT fill in gaps with "typical" or "expected" clinical language. If it's not in the documents, it does NOT go in the report.
+   - Do NOT paraphrase intake data in a way that changes its meaning or adds information.
 
-2. **Map the data**: Take every piece of relevant information from the RAW INTAKE DATA and place it in the appropriate section of the report, following the structure of the sample.
+2. **FORMAT ONLY from the SAMPLE REPORT**: The SAMPLE REPORT is provided ONLY as a formatting template:
+   - Copy its exact section headers, in the same order
+   - Copy its document structure (same sections, same layout)
+   - Copy its formatting patterns (prose vs bullets, paragraph length style)
+   - Copy its header capitalization style
+   - IGNORE all content/data in the sample report — use ONLY data from the intake documents
 
-3. **Missing information**: Where data is clearly needed for a section but was NOT provided in the intake, insert the placeholder tag [BLANK] so the clinician can fill it in later. Never fabricate clinical data.
+3. **[BLANK] for missing information**: If a section from the sample report template requires information that is NOT found anywhere in the intake data, write [BLANK] in that spot. Do NOT guess or fabricate.
+   Example: If the sample has a "Family History" section but the intake docs don't mention family history, write:
+   "Family History: [BLANK]"
 
-4. **Clinical language**: Use professional, clinical language consistent with the sample. Maintain the same level of detail, paragraph length, and vocabulary.
+4. **Preserve original wording**: When the intake documents contain specific clinical phrases, scores, observations, or quotes, use them as close to verbatim as possible. Do not "improve" or embellish the language.
 
-5. **Completeness**: Include ALL sections present in the sample report. Do not omit any section.
-
-6. **Output format**: Return ONLY the report text. Do not include meta-commentary, explanations, or notes to the user. Do not use markdown formatting (no **, ##, etc.) — use plain text with clear section headers.
+5. **Output format**: 
+   - Return ONLY the report text
+   - No markdown formatting (no **, ##, etc.)
+   - Use plain text with clear section headers
+   - No meta-commentary, explanations, or notes
 """
 
 SYSTEM_PROMPT_CHAT = """\
@@ -267,11 +272,14 @@ def synthesize_report(raw_text: str, sample_report_text: str) -> str:
     client = _get_genai_client()
 
     user_message = (
-        "=== SAMPLE REPORT (match this style) ===\n\n"
+        "=== SAMPLE REPORT (use ONLY for format/structure, IGNORE its content) ===\n\n"
         f"{sample_report_text}\n\n"
-        "=== RAW INTAKE DATA ===\n\n"
+        "=== RAW INTAKE DATA (this is the ONLY source of truth — use NOTHING else) ===\n\n"
         f"{raw_text}\n\n"
-        "Now write the complete psychological report."
+        "Now reorganize the intake data into the report format shown above.\n"
+        "REMEMBER: Use ONLY facts from the RAW INTAKE DATA. "
+        "If information for a section is missing, write [BLANK]. "
+        "Do NOT add anything that is not explicitly in the intake documents."
     )
 
     # Try premium model first, then fall back
@@ -284,7 +292,7 @@ def synthesize_report(raw_text: str, sample_report_text: str) -> str:
                 contents=[user_message],
                 config=genai.types.GenerateContentConfig(
                     system_instruction=SYSTEM_PROMPT_SYNTHESIZE,
-                    temperature=0.1,
+                    temperature=0.0,
                 ),
             )
             return response.text
